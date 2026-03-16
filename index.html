@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Mejorador de Nitidez de Imagen</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --panel-bg: #f9f9f9;
+            --accent: #000000; /* Gris muy oscuro/negro para contraste */
+            --text-main: #000000;
+            --text-muted: #555555;
+            --border: #e5e5e5;
+        }
+
+        body {
+            font-family: 'Open Sans', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        h1, h3 { 
+            font-family: 'Playfair Display', serif; 
+            margin-bottom: 10px; 
+            color: var(--text-main); 
+        }
+        
+        h3 { margin-top: 0; }
+
+        p { color: var(--text-muted); margin-bottom: 30px; text-align: center; max-width: 600px; }
+
+        .toolbar {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 30px;
+            border: 1px solid var(--border);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button, .file-upload-label {
+            background: var(--accent);
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 999px;
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px; /* Espacio entre el icono y el texto */
+        }
+
+        button:hover, .file-upload-label:hover { opacity: 0.85; }
+        button:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
+
+        input[type="file"] { display: none; }
+
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        input[type="range"] { accent-color: var(--accent); cursor: pointer; }
+
+        .canvas-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .image-box {
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 30px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border-radius: 20px;
+            background: #e5e5e5; /* Fondo claro para los canvas vacíos */
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Mejorador de Nitidez</h1>
+    <p>Aplica un filtro matemático de convolución para resaltar los bordes y hacer que las imágenes borrosas se vean más nítidas.</p>
+
+    <div class="toolbar">
+        <label class="file-upload-label">
+            <i data-lucide="upload" style="width: 18px; height: 18px;"></i>
+            Subir Imagen
+            <input type="file" id="uploadInput" accept="image/png, image/jpeg, image/webp">
+        </label>
+
+        <div class="slider-container">
+            <label for="sharpnessSlider">Intensidad del Filtro: <span id="sharpVal">50</span>%</label>
+            <input type="range" id="sharpnessSlider" min="0" max="100" value="50" disabled>
+        </div>
+
+        <button id="downloadBtn" disabled>
+            <i data-lucide="download" style="width: 18px; height: 18px;"></i>
+            Descargar Resultado
+        </button>
+    </div>
+
+    <div class="canvas-container">
+        <div class="image-box">
+            <h3>Original</h3>
+            <canvas id="canvasOriginal"></canvas>
+        </div>
+        <div class="image-box">
+            <h3>Resultado (Mejorado)</h3>
+            <canvas id="canvasResult"></canvas>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+    <script>
+        const uploadInput = document.getElementById('uploadInput');
+        const sharpnessSlider = document.getElementById('sharpnessSlider');
+        const sharpVal = document.getElementById('sharpVal');
+        const downloadBtn = document.getElementById('downloadBtn');
+        
+        const canvasOriginal = document.getElementById('canvasOriginal');
+        const ctxOriginal = canvasOriginal.getContext('2d');
+        
+        const canvasResult = document.getElementById('canvasResult');
+        const ctxResult = canvasResult.getContext('2d', { willReadFrequently: true });
+
+        let originalImage = new Image();
+
+        // 1. Cargar la imagen
+        uploadInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                originalImage.onload = function() {
+                    // Ajustar tamaño de los canvas a la imagen real
+                    canvasOriginal.width = originalImage.width;
+                    canvasOriginal.height = originalImage.height;
+                    canvasResult.width = originalImage.width;
+                    canvasResult.height = originalImage.height;
+
+                    // Dibujar original
+                    ctxOriginal.drawImage(originalImage, 0, 0);
+                    
+                    // Activar controles
+                    sharpnessSlider.disabled = false;
+                    downloadBtn.disabled = false;
+
+                    // Procesar
+                    processImage();
+                }
+                originalImage.src = event.target.result;
+            }
+            reader.readAsDataURL(file);
+        });
+
+        // 2. Actualizar al mover el deslizador
+        sharpnessSlider.addEventListener('input', function() {
+            sharpVal.textContent = this.value;
+        });
+        
+        sharpnessSlider.addEventListener('change', processImage);
+
+        // 3. El Motor Matemático: Filtro de Convolución
+        function processImage() {
+            // Primero, dibujamos la imagen original en el canvas de resultado
+            ctxResult.drawImage(originalImage, 0, 0);
+            
+            const strength = parseInt(sharpnessSlider.value) / 100;
+            if (strength === 0) return; // Si es 0, dejamos la original
+
+            // Obtenemos los píxeles
+            const imageData = ctxResult.getImageData(0, 0, canvasResult.width, canvasResult.height);
+            const data = imageData.data;
+            const width = imageData.width;
+            const height = imageData.height;
+
+            // Matriz de convolución (Sharpen) ajustada por intensidad
+            // Centro fuerte, bordes negativos
+            const center = 1 + (4 * strength);
+            const edge = -strength;
+            
+            const kernel = [
+                0,    edge,   0,
+                edge, center, edge,
+                0,    edge,   0
+            ];
+
+            // Clonamos los datos para no sobreescribir mientras leemos
+            const side = Math.round(Math.sqrt(kernel.length));
+            const halfSide = Math.floor(side / 2);
+            const outputData = new Uint8ClampedArray(data.length);
+
+            // Recorremos cada píxel
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const dstOff = (y * width + x) * 4;
+                    let r = 0, g = 0, b = 0;
+
+                    // Aplicamos la matriz a los píxeles vecinos
+                    for (let cy = 0; cy < side; cy++) {
+                        for (let cx = 0; cx < side; cx++) {
+                            const scy = y + cy - halfSide;
+                            const scx = x + cx - halfSide;
+                            
+                            // Evitar bordes fuera de la imagen
+                            if (scy >= 0 && scy < height && scx >= 0 && scx < width) {
+                                const srcOff = (scy * width + scx) * 4;
+                                const wt = kernel[cy * side + cx];
+                                
+                                r += data[srcOff] * wt;
+                                g += data[srcOff + 1] * wt;
+                                b += data[srcOff + 2] * wt;
+                            }
+                        }
+                    }
+
+                    // Guardamos el resultado asegurando que esté entre 0 y 255
+                    outputData[dstOff] = r;
+                    outputData[dstOff + 1] = g;
+                    outputData[dstOff + 2] = b;
+                    outputData[dstOff + 3] = data[dstOff + 3]; // Mantener transparencia (Alpha)
+                }
+            }
+
+            // Devolver los píxeles procesados al canvas
+            imageData.data.set(outputData);
+            ctxResult.putImageData(imageData, 0, 0);
+        }
+
+        // 4. Descargar la imagen
+        downloadBtn.addEventListener('click', function() {
+            const link = document.createElement('a');
+            link.download = 'imagen_mejorada.png';
+            link.href = canvasResult.toDataURL('image/png');
+            link.click();
+        });
+    </script>
+</body>
+</html>
